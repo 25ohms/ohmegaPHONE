@@ -1,25 +1,11 @@
 #include "OhmWireframe.h"
+#include "OhmGeometry.h"
 
 #include <math.h>
 
 namespace {
-// One closed perimeter traces both sides of the Ω stroke and its two feet.
-// Its proportions are inspired by Verdana's capital Omega. Coordinates are
-// centered around the origin; edit these samples to reshape the glyph.
-constexpr float kOutline[][2] = {
-    {-50, 58}, {-34, 58}, {-38, 49}, {-44, 39}, {-48, 27}, {-50, 14},
-    {-49, 1}, {-46, -12}, {-40, -24}, {-31, -34}, {-20, -41}, {-7, -45},
-    {7, -45}, {20, -41}, {31, -34}, {40, -24}, {46, -12}, {49, 1},
-    {50, 14}, {48, 27}, {44, 39}, {38, 49}, {34, 58}, {50, 58},
-    {50, 48}, {29, 48}, {30, 38}, {32, 28}, {34, 17}, {34, 5},
-    {31, -7}, {25, -18}, {18, -26}, {10, -31}, {4, -33}, {-4, -33},
-    {-10, -31}, {-18, -26}, {-25, -18}, {-31, -7}, {-34, 5}, {-34, 17},
-    {-32, 28}, {-30, 38}, {-29, 48}, {-50, 48}};
-constexpr size_t kOutlinePointCount = sizeof(kOutline) / sizeof(kOutline[0]);
-
 // Apply a small perspective projection after rotating around X and Y.
 constexpr float kCameraDistance = 230.0f;
-constexpr float kDegreesPerRadian = 57.2957795f;
 } // namespace
 
 OhmWireframe::OhmWireframe(Adafruit_GFX &display)
@@ -68,21 +54,21 @@ void OhmWireframe::draw(uint32_t elapsedMillis) {
   const float frontZ = _settings.depth * 0.5f;
   const float backZ = -frontZ;
 
-  Point3 front[kOutlinePointCount];
-  Point3 back[kOutlinePointCount];
+  Point3 front[kOhmOutlinePointCount];
+  Point3 back[kOhmOutlinePointCount];
 
-  for (size_t i = 0; i < kOutlinePointCount; ++i) {
-    front[i] = {kOutline[i][0], kOutline[i][1], frontZ};
-    back[i] = {kOutline[i][0], kOutline[i][1], backZ};
+  for (size_t i = 0; i < kOhmOutlinePointCount; ++i) {
+    front[i] = {kOhmOutline[i].x, kOhmOutline[i].y, frontZ};
+    back[i] = {kOhmOutline[i].x, kOhmOutline[i].y, backZ};
   }
 
   // Outline the front and rear faces of the extruded letter.
-  drawContour(front, kOutlinePointCount, angleX, angleY, true);
-  drawContour(back, kOutlinePointCount, angleX, angleY, true);
+  drawContour(front, kOhmOutlinePointCount, angleX, angleY, true);
+  drawContour(back, kOhmOutlinePointCount, angleX, angleY, true);
 
   // Crossbars connect front and back samples, making the extrusion visible.
   const size_t step = _settings.meshStep < 1 ? 1 : _settings.meshStep;
-  for (size_t i = 0; i < kOutlinePointCount; i += step) {
+  for (size_t i = 0; i < kOhmOutlinePointCount; i += step) {
     const Point3 f = project(front[i].x, front[i].y, front[i].z,
                              angleX, angleY);
     const Point3 b = project(back[i].x, back[i].y, back[i].z,

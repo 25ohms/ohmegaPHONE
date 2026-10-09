@@ -21,3 +21,7 @@ pio device monitor  # use this to montior serial outputs
 
 ```
 
+### Pre-viz
+
+Preview the Ω before flashing. From the repo root, run `cd pre-viz && cmake -S . -B build && cmake --build build && ./build/ohmega_previz` to build and open it. Requires CMake and SDL2.
+
