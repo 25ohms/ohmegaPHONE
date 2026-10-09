@@ -18,7 +18,7 @@ void setup() {
   Serial.begin(115200);
 
   tft.begin();
-  tft.setRotation(0); // Native 240 x 320 portrait orientation.
+  tft.setRotation(3); // 320 x 240 landscape orientation.
   tft.fillScreen(ILI9341_BLACK);
 
   // Tweak scale, depth, rotation speeds, meshStep, and color here.
