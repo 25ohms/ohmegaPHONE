@@ -7,3 +7,17 @@ Hardware specs:
 - TFT Screen 2.4in 240x320 RGB LCD Display
 
 
+### Compilation:
+```
+pio run             # compile binaries
+pio run -t upload   # flash onto firmware
+
+
+pio device list     # run this if device is not showing up at all
+pio run -t upload --upload-port /dev/cu.usbserial-0001
+# example device
+
+pio device monitor  # use this to montior serial outputs
+
+```
+
