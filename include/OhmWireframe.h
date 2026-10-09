@@ -2,15 +2,14 @@
 
 #include <Adafruit_GFX.h>
 #include <Arduino.h>
+#include <Stream.h>
 
 // Small software renderer for a rotating, extruded capital Omega (Ω).
-// The glyph is a sampled outline inspired by the proportions of Verdana's
-// capital Omega. No font file, framebuffer, or 3D library is needed.
+// Mesh coordinates are loaded from a filesystem stream at startup.
 class OhmWireframe {
 public:
   struct Settings {
     float scale;             // Overall glyph size in display pixels.
-    float depth;             // Extrusion distance in model units.
     float rotationSpeedX;    // Rotation speed, radians per second.
     float rotationSpeedY;
     uint8_t meshStep;        // Lower values draw a denser wireframe.
@@ -18,6 +17,9 @@ public:
   };
 
   explicit OhmWireframe(Adafruit_GFX &display);
+
+  // Load tab-separated x/y/z mesh coordinates from a filesystem stream.
+  bool loadGeometry(Stream &input);
 
   Settings &settings() { return _settings; }
   const Settings &settings() const { return _settings; }
@@ -33,9 +35,18 @@ private:
   };
 
   Point3 project(float x, float y, float z, float angleX, float angleY) const;
-  void drawContour(const Point3 *contour, size_t count, float angleX,
-                   float angleY, bool closed);
+  void drawSegment(const Point3 &a, const Point3 &b, float angleX,
+                   float angleY);
+  void drawMeshTriangle(const Point3 *triangle, float angleX, float angleY);
 
   Adafruit_GFX &_display;
   Settings _settings;
+  static constexpr size_t kMaxMeshPoints = 200;
+  Point3 _mesh[kMaxMeshPoints];
+  size_t _meshPointCount = 0;
+  size_t _baseVertexCount = 0;
+  float _centerX = 0.0f;
+  float _centerY = 0.0f;
+  float _centerZ = 0.0f;
+  float _fitScale = 1.0f;
 };

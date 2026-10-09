@@ -1,7 +1,8 @@
 #include "OhmWireframe.h"
-#include "OhmGeometry.h"
+#include "OhmConfig.h"
 
 #include <math.h>
+#include <stdlib.h>
 
 namespace {
 // Apply a small perspective projection after rotating around X and Y.
@@ -10,7 +11,66 @@ constexpr float kCameraDistance = 230.0f;
 
 OhmWireframe::OhmWireframe(Adafruit_GFX &display)
     : _display(display),
-      _settings{1.35f, 14.0f, 0.0f, 0.9f, 3, 0x07FF} {}
+      _settings{OhmConfig::kRenderDefaults.scale,
+                OhmConfig::kRenderDefaults.rotationSpeedX,
+                OhmConfig::kRenderDefaults.rotationSpeedY,
+                OhmConfig::kRenderDefaults.meshStep,
+                OhmConfig::kRenderDefaults.color565} {}
+
+bool OhmWireframe::loadGeometry(Stream &input) {
+  _meshPointCount = 0;
+  _baseVertexCount = 0;
+  bool readingTriangles = false;
+  float minX = 0.0f, maxX = 0.0f;
+  float minY = 0.0f, maxY = 0.0f;
+  float minZ = 0.0f, maxZ = 0.0f;
+
+  while (input.available()) {
+    String line = input.readStringUntil('\n');
+    line.trim();
+    if (!line.length()) continue;
+    if (line[0] == 'x' || line[0] == 'X') continue;
+
+    char row[96];
+    line.toCharArray(row, sizeof(row));
+    char *cursor = row;
+    char *xText = strsep(&cursor, "\t,");
+    char *yText = cursor ? strsep(&cursor, "\t,") : nullptr;
+    char *zText = cursor ? strsep(&cursor, "\t,") : nullptr;
+    if (!xText || !yText || !zText || _meshPointCount >= kMaxMeshPoints)
+      return false;
+
+    Point3 point = {atof(xText), atof(yText), atof(zText)};
+    if (_meshPointCount == 0) {
+      minX = maxX = point.x;
+      minY = maxY = point.y;
+      minZ = maxZ = point.z;
+    } else {
+      if (point.x < minX) minX = point.x;
+      if (point.x > maxX) maxX = point.x;
+      if (point.y < minY) minY = point.y;
+      if (point.y > maxY) maxY = point.y;
+      if (point.z < minZ) minZ = point.z;
+      if (point.z > maxZ) maxZ = point.z;
+    }
+    if (point.z > 0.0001f) readingTriangles = true;
+    if (!readingTriangles) ++_baseVertexCount;
+    _mesh[_meshPointCount++] = point;
+  }
+
+  const bool valid = _baseVertexCount > 0 &&
+                     (_meshPointCount - _baseVertexCount) >= 3 &&
+                     (_meshPointCount - _baseVertexCount) % 3 == 0;
+  if (valid) {
+    _centerX = (minX + maxX) * 0.5f;
+    _centerY = (minY + maxY) * 0.5f;
+    _centerZ = (minZ + maxZ) * 0.5f;
+    const float modelSize = fmaxf(maxX - minX, maxY - minY);
+    if (modelSize <= 0.0f) return false;
+    _fitScale = (_display.height() * 0.36f) / modelSize;
+  }
+  return valid;
+}
 
 OhmWireframe::Point3 OhmWireframe::project(float x, float y, float z,
                                           float angleX,
@@ -29,55 +89,49 @@ OhmWireframe::Point3 OhmWireframe::project(float x, float y, float z,
   return {rotatedX * perspective, rotatedY * perspective, finalZ};
 }
 
-void OhmWireframe::drawContour(const Point3 *contour, size_t count,
-                               float angleX, float angleY, bool closed) {
-  const size_t edgeCount = closed ? count : count - 1;
-  for (size_t i = 0; i < edgeCount; ++i) {
-    const size_t next = (i + 1) % count;
-    const Point3 a = project(contour[i].x, contour[i].y, contour[i].z,
-                             angleX, angleY);
-    const Point3 b = project(contour[next].x, contour[next].y, contour[next].z,
-                             angleX, angleY);
-    const int centerX = _display.width() / 2;
-    const int centerY = _display.height() / 2;
-    _display.drawLine(centerX + (int)(a.x * _settings.scale),
-                      centerY + (int)(a.y * _settings.scale),
-                      centerX + (int)(b.x * _settings.scale),
-                      centerY + (int)(b.y * _settings.scale), _settings.color);
-  }
+void OhmWireframe::drawSegment(const Point3 &sourceA, const Point3 &sourceB,
+                               float angleX, float angleY) {
+  const float multiplier = _fitScale * _settings.scale;
+  const int screenCenterX = _display.width() / 2;
+  const int screenCenterY = _display.height() / 2;
+
+  const Point3 a = project((sourceA.x - _centerX) * 2.0f,
+                           (sourceA.y - _centerY) * 2.0f,
+                           (sourceA.z - _centerZ) * 2.0f, angleX, angleY);
+  const Point3 b = project((sourceB.x - _centerX) * 2.0f,
+                           (sourceB.y - _centerY) * 2.0f,
+                           (sourceB.z - _centerZ) * 2.0f, angleX, angleY);
+  _display.drawLine(screenCenterX + (int)(a.x * multiplier),
+                    screenCenterY + (int)(a.y * multiplier),
+                    screenCenterX + (int)(b.x * multiplier),
+                    screenCenterY + (int)(b.y * multiplier), _settings.color);
+}
+
+void OhmWireframe::drawMeshTriangle(const Point3 *triangle, float angleX,
+                                    float angleY) {
+  for (size_t edge = 0; edge < 3; ++edge)
+    drawSegment(triangle[edge], triangle[(edge + 1) % 3], angleX, angleY);
 }
 
 void OhmWireframe::draw(uint32_t elapsedMillis) {
   const float seconds = elapsedMillis / 1000.0f;
   const float angleX = seconds * _settings.rotationSpeedX;
   const float angleY = seconds * _settings.rotationSpeedY;
-  const float frontZ = _settings.depth * 0.5f;
-  const float backZ = -frontZ;
-
-  Point3 front[kOhmOutlinePointCount];
-  Point3 back[kOhmOutlinePointCount];
-
-  for (size_t i = 0; i < kOhmOutlinePointCount; ++i) {
-    front[i] = {kOhmOutline[i].x, kOhmOutline[i].y, frontZ};
-    back[i] = {kOhmOutline[i].x, kOhmOutline[i].y, backZ};
-  }
-
-  // Outline the front and rear faces of the extruded letter.
-  drawContour(front, kOhmOutlinePointCount, angleX, angleY, true);
-  drawContour(back, kOhmOutlinePointCount, angleX, angleY, true);
-
-  // Crossbars connect front and back samples, making the extrusion visible.
+  if (_meshPointCount <= _baseVertexCount) return;
+  const size_t triangleCount = (_meshPointCount - _baseVertexCount) / 3;
   const size_t step = _settings.meshStep < 1 ? 1 : _settings.meshStep;
-  for (size_t i = 0; i < kOhmOutlinePointCount; i += step) {
-    const Point3 f = project(front[i].x, front[i].y, front[i].z,
-                             angleX, angleY);
-    const Point3 b = project(back[i].x, back[i].y, back[i].z,
-                             angleX, angleY);
-    const int cx = _display.width() / 2;
-    const int cy = _display.height() / 2;
-    _display.drawLine(cx + (int)(f.x * _settings.scale),
-                      cy + (int)(f.y * _settings.scale),
-                      cx + (int)(b.x * _settings.scale),
-                      cy + (int)(b.y * _settings.scale), _settings.color);
+  for (size_t triangleIndex = 0; triangleIndex < triangleCount;
+       triangleIndex += step) {
+    const Point3 *triangle = &_mesh[_baseVertexCount + triangleIndex * 3];
+    drawMeshTriangle(triangle, angleX, angleY);
+
+    Point3 rearTriangle[3] = {triangle[0], triangle[1], triangle[2]};
+    for (size_t vertex = 0; vertex < 3; ++vertex) {
+      rearTriangle[vertex].z = 0.0f;
+    }
+    drawMeshTriangle(rearTriangle, angleX, angleY);
+    for (size_t vertex = 0; vertex < 3; ++vertex) {
+      drawSegment(triangle[vertex], rearTriangle[vertex], angleX, angleY);
+    }
   }
 }
